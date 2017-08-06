@@ -575,6 +575,86 @@ namespace Microsoft.Net.Http.Headers
             Assert.False(NameValueHeaderValue.TryParseStrictList(inputs, out results));
         }
 
+        [Theory]
+        [InlineData("value", "value")]
+        [InlineData("\"value\"", "value")]
+        [InlineData("\"hello\\\\\"", "hello\\")]
+        [InlineData("\"hello\\\"\"", "hello\"")]
+        [InlineData("\"hello\\\"foo\\\\bar\\\\baz\\\\\"", "hello\"foo\\bar\\baz\\")]
+        [InlineData("\"quoted value\"", "quoted value")]
+        [InlineData("\"quoted\\\"valuewithquote\"", "quoted\"valuewithquote")]
+        public void GetUnescapedValue_ReturnsExpectedValue(string input, string expected)
+        {
+            var header = new NameValueHeaderValue("test", input);
+
+            var actual = header.GetUnescapedValue();
+
+            Assert.Equal(expected, actual);
+        }
+
+        [Theory]
+        [InlineData("\"hello\\\"")]
+        // See https://github.com/aspnet/HttpAbstractions/issues/923
+        // Invalid escape characters in the name value do not throw a FormatException
+        // because a quoted-string isn't checked for invalid characters.
+        // Calling GetUnescapedValue() will therefore succeed.
+        public void GetUnescapedValue_ThrowsFormatException(string input)
+        {
+            var header = new NameValueHeaderValue("test", input);
+
+            Assert.Throws<FormatException>(() => header.GetUnescapedValue());
+        }
+
+        [Theory]
+        [InlineData("value", "value")]
+        [InlineData("23", "23")]
+        [InlineData(";;;", "\";;;\"")]
+        [InlineData("\"value\"", "\"value\"")]
+        [InlineData("\"assumes already encoded \\\"\"", "\"assumes already encoded \\\"\"")]
+        [InlineData("unquoted \"value", "\"unquoted \\\"value\"")]
+        [InlineData("value\\morevalues\\evenmorevalues", "\"value\\\\morevalues\\\\evenmorevalues\"")]
+        // We have to assume that the input needs to be quoted here
+        [InlineData("\"\"double quoted string\"\"", "\"\\\"\\\"double quoted string\\\"\\\"\"")]
+        public void SetAndEscapeValue_ReturnsExpectedValue(string input, string expected)
+        {
+            var header = new NameValueHeaderValue("test");
+            header.SetAndEscapeValue(input);
+
+            var actual = header.Value;
+
+            Assert.Equal(expected, actual);
+        }
+
+        [Theory]
+        [InlineData("value")]
+        [InlineData("\"value\\\\morevalues\\\\evenmorevalues\"")]
+        [InlineData("\"quoted \\\"value\"")]
+        public void GetAndSetEncodeValueRoundTrip_ReturnsExpectedValue(string input)
+        {
+            var header = new NameValueHeaderValue("test");
+            header.Value = input;
+            var valueHeader = header.GetUnescapedValue();
+            header.SetAndEscapeValue(valueHeader);
+
+            var actual = header.Value;
+
+            Assert.Equal(input, actual);
+        }
+        [Theory]
+        [InlineData("val\\nue")]
+        [InlineData("val\\bue")]
+        public void GetAndSetEncodeValueRoundTrip_Fails(string input)
+        {
+            var header = new NameValueHeaderValue("test");
+            header.SetAndEscapeValue(input);
+            var valueHeader = header.GetUnescapedValue();
+
+            var actual = header.Value;
+
+            Assert.NotEqual(input, actual);
+        }
+
+
         #region Helper methods
 
         private void CheckValidParse(string input, NameValueHeaderValue expectedResult)

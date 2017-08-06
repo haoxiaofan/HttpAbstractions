@@ -210,5 +210,28 @@ namespace Microsoft.Net.Http.Headers
             Assert.True(HeaderUtilities.TryParseNonNegativeInt32(valueString, out value));
             Assert.Equal(expected, value);
         }
+
+        [Theory]
+        [InlineData("\"hello\"", "hello")]
+        [InlineData("\"hello", "\"hello")]
+        [InlineData("hello\"", "hello\"")]
+        [InlineData("\"\"hello\"\"", "\"hello\"")]
+        public void RemoveQuotes_BehaviorCheck(string input, string expected)
+        {
+            var actual = HeaderUtilities.RemoveQuotes(input);
+
+            Assert.Equal(expected, actual);
+        }
+        [Theory]
+        [InlineData("\"hello\"", true)]
+        [InlineData("\"hello", false)]
+        [InlineData("hello\"", false)]
+        [InlineData("\"\"hello\"\"", true)]
+        public void IsQuoted_BehaviorCheck(string input, bool expected)
+        {
+            var actual = HeaderUtilities.IsQuoted(input);
+
+            Assert.Equal(expected, actual);
+        }
     }
 }

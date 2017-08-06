@@ -594,11 +594,16 @@ namespace Microsoft.Net.Http.Headers
 
         public static StringSegment RemoveQuotes(StringSegment input)
         {
-            if (!StringSegment.IsNullOrEmpty(input) && input.Length >= 2 && input[0] == '"' && input[input.Length - 1] == '"')
+            if (IsQuoted(input))
             {
                 input = input.Subsegment(1, input.Length - 2);
             }
             return input;
+        }
+
+        public static bool IsQuoted(StringSegment input)
+        {
+            return !StringSegment.IsNullOrEmpty(input) && input.Length >= 2 && input[0] == '"' && input[input.Length - 1] == '"';
         }
 
         internal static void ThrowIfReadOnly(bool isReadOnly)

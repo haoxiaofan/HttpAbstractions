@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.Contracts;
+using System.Globalization;
 using System.Text;
 using Microsoft.Extensions.Primitives;
 
@@ -139,6 +140,28 @@ namespace Microsoft.Net.Http.Headers
             else
             {
                 return (_value.Equals(other._value, StringComparison.OrdinalIgnoreCase));
+            }
+        }
+
+        public StringSegment GetUnescapedValue()
+        {
+            if (!HeaderUtilities.IsQuoted(_value))
+            {
+                return _value;
+            }
+            return UnescapeAsQuotedString(_value);
+        }
+
+        public void SetAndEscapeValue(StringSegment value)
+        {
+            HeaderUtilities.ThrowIfReadOnly(IsReadOnly);
+            if (StringSegment.IsNullOrEmpty(value) || (GetValueLength(value, 0) == value.Length))
+            {
+                _value = value;
+            }
+            else
+            {
+                Value = EscapeAsQuotedString(value);
             }
         }
 
@@ -390,13 +413,109 @@ namespace Microsoft.Net.Http.Headers
             // Either value is null/empty or a valid token/quoted string
             if (!(StringSegment.IsNullOrEmpty(value) || (GetValueLength(value, 0) == value.Length)))
             {
-                throw new FormatException(string.Format(System.Globalization.CultureInfo.InvariantCulture, "The header value is invalid: '{0}'", value));
+                throw new FormatException(string.Format(CultureInfo.InvariantCulture, "The header value is invalid: '{0}'", value));
             }
         }
 
         private static NameValueHeaderValue CreateNameValue()
         {
             return new NameValueHeaderValue();
+        }
+
+        // See https://tools.ietf.org/html/rfc7230#section-3.2.6
+        private static StringSegment UnescapeAsQuotedString(StringSegment input)
+        {
+            input = HeaderUtilities.RemoveQuotes(input);
+
+            // First pass to calculate the size of the InplaceStringBuilder
+            var backSlashCount = CountBackslashesForDecodingQuotedString(input);
+
+            if (backSlashCount == 0)
+            {
+                return input;
+            }
+
+            var stringBuilder = new InplaceStringBuilder(input.Length - backSlashCount);
+
+            for (var i = 0; i < input.Length; i++)
+            {
+                if (input[i] == '\\')
+                {
+                    if (input.Length == i + 1)
+                    {
+                        throw new FormatException(string.Format(CultureInfo.InvariantCulture,
+                            "The header value is invalid. illegal escape character in input: '{0}', position: '{1}'", input, i + 1));
+                    }
+                    else
+                    {
+                        // Note, if a sender adds a quoted pair like '\\''n', we will assume it is over escaping and just add a n to the string.
+                        stringBuilder.Append(input[i + 1]);
+                        i++;
+                        continue;
+                    }
+                }
+                stringBuilder.Append(input[i]);
+            }
+
+            return stringBuilder.ToString();
+        }
+
+        // See https://tools.ietf.org/html/rfc7230#section-3.2.6
+        private static StringSegment EscapeAsQuotedString(StringSegment input)
+        {
+            // By calling this, we know that the string requires quotes around it to be a valid token.
+            var backSlashCount = CountCharactersNeedingBackslashesWhenEncoding(input);
+
+            var stringBuilder = new InplaceStringBuilder(input.Length + backSlashCount + 2); // 2 for quotes
+            stringBuilder.Append('\"');
+
+            for (var i = 0; i < input.Length; i++)
+            {
+                if (input[i] == '\\' || input[i] == '\"')
+                {
+                    stringBuilder.Append('\\');
+                }
+
+                stringBuilder.Append(input[i]);
+            }
+            stringBuilder.Append('\"');
+            return stringBuilder.ToString();
+        }
+
+        private static int CountBackslashesForDecodingQuotedString(StringSegment input)
+        {
+            var numBackSlashes = 0;
+            for (var i = 0; i < input.Length; i++)
+            {
+                if (input[i] == '\\')
+                {
+                    if (input.Length == i + 1)
+                    {
+                        throw new FormatException(string.Format(CultureInfo.InvariantCulture,
+                          "The header value is invalid. illegal escape character in input: '{0}', position: '{1}'", input, i + 1));
+                    }
+                    else if (input[i + 1] == '\\')
+                    {
+                        // Only count escaped backslashes once
+                        i++;
+                    }
+                    numBackSlashes++;
+                }
+            }
+            return numBackSlashes;
+        }
+
+        private static int CountCharactersNeedingBackslashesWhenEncoding(StringSegment input)
+        {
+            var numBackSlashes = 0;
+            for (var i = 0; i < input.Length; i++)
+            {
+                if (input[i] == '\\' || input[i] == '\"')
+                {
+                    numBackSlashes++;
+                }
+            }
+            return numBackSlashes;
         }
     }
 }
